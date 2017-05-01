@@ -1,9 +1,13 @@
+current commit is not tested even once, 
+
 ## A SQLite Scheduler for Scrapy Framework.
 
 Scrapy-sqlite is a tool that lets you feed and queue URLs from SQLite via Scrapy spiders, using the [Scrapy framework](http://doc.scrapy.org/en/latest/index.html).
 
-Inpsired by and modled after [scrapy-rabbitmq](https://github.com/darkrho/scrapy-redis).
-which was too inpsired by and modled after [scrapy-redis](https://github.com/darkrho/scrapy-redis).
+Inspired by and modled after [scrapy-rabbitmq](https://github.com/roycehaynes/scrapy-rabbitmq)
+which was inspired by and modled after [scrapy-redis](https://github.com/darkrho/scrapy-redis).
+
+This classes use by default the same table for Scheduler, Dupefilter, Queue and Httpcache.
 
 ## Installation
 
@@ -81,16 +85,10 @@ scrapy runspider multidomain_spider.py
 #TODO: reprogramm to sqlite
 
 #!/usr/bin/env python
-import pika
+import sqlite3
 import settings
 
-connection = pika.BlockingConnection(pika.ConnectionParameters(
-               'localhost'))
-channel = connection.channel()
-
-channel.basic_publish(exchange='',
-                      routing_key=settings.SQLITE_QUEUE_NAME,
-                      body='</html>raw html contents<a href="http://twitter.com/roycehaynes">extract url</a></html>')
+connection = sqlite3.connect('db.sqlite3'))
 
 connection.close()
 
