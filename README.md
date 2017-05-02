@@ -41,8 +41,8 @@ SCHEDULER_QUEUE_CLASS = 'scrapy_sqlite.queue.SpiderQueue'
 # SQLite Queue to use to store requests
 SQLITE_QUEUE_TABLE = 'scrapy_queue'
 
-# Provide path to SQLite db file
-SQLITE_CONNECTION_PARAMETERS = 'db.sqlite3'
+# Provide path to SQLite db file, this example creates imdb.sqlite3 filename for bot named imdb
+SQLITE_DATABASE = '%(spider)s.sqlite3'
 
 # Store scraped item in sqlite for post-processing.
 ITEM_PIPELINES = {
