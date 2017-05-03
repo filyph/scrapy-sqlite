@@ -38,8 +38,9 @@ def from_crawler(crawler):
         # ensure that main table used by scheduler, httpcache and dupefilter exists
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS "%s"(
-                url TEXT,
                 state INTEGER,
+                url TEXT,
+                priority INTEGER,
                 downloaded INTEGER,
                 fingerprint TEXT UNIQUE,
                 request BLOB,
@@ -47,7 +48,7 @@ def from_crawler(crawler):
                 );
 
             CREATE INDEX IF NOT EXISTS request_state_index
-                ON "%s" (state);
+                ON "%s" (state, priority);
             """ % (table, table))
     return connections[sqlite_database]
 

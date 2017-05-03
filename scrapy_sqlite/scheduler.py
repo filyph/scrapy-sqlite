@@ -51,24 +51,16 @@ class Scheduler(object):
 
     def open(self, spider):
         self.spider = spider
-        #self.df = RFPDupeFilter(self.conn, self.dupefilter_table % {'spider': spider.name})
-
-        self.idle_before_close = max(self.idle_before_close, 0)
 
         if self.has_pending_requests():
             spider.log("Resuming crawl (%d requests scheduled)" % len(self))
 
     def close(self, reason):
         if not self.persist:
-            #self.df.clear()
-            #self.queue.clear()
             self.conn.execute('DELETE FROM "%s" WHERE state=?' % self.table, \
                     (connection.SCHEDULED))
 
     def enqueue_request(self, request):
-        if not request.dont_filter: #and self.df.request_seen(request): see comment below
-            return
-
         request_dump = self._encode_request(request)
         fingerprint = request_fingerprint(request)
 
@@ -77,47 +69,59 @@ class Scheduler(object):
         c.execute('BEGIN IMMEDIATE TRANSACTION')
         c.execute('''
             INSERT OR IGNORE INTO "%s"
-                (url, fingerprint, request, state) VALUES (?,?,?,?)''' % self.table,\
-                (request.url, fingerprint, request_dump, connection.SCHEDULED))
+                (url, fingerprint, priority, request, state) VALUES (?,?,?,?,?)''' % self.table,\
+                (request.url, fingerprint, request.priority, request_dump, connection.SCHEDULED))
 
-        if c.rowcount < 1:
+        # if request is not inserted (new) and we cannot filter it,
+        # update state to be scheduled again
+        if c.rowcount < 1 and request.dont_filter:
             c = self.conn.execute('UPDATE "%s" SET state = ?' % self.table,\
                     (connection.SCHEDULED,))
+            if self.stats:
+                self.stats.inc_value('scheduler/enqueued/sqlite', spider=self.spider)
+
         self.conn.commit()
 
-        if self.stats:
-            self.stats.inc_value('scheduler/enqueued/sqlite', spider=self.spider)
-
-    def _encode_request(self, request):
-        """Encode a request object"""
-        return pickle.dumps(request_to_dict(request, self.spider), protocol=-1)
-
-    def _decode_request(self, encoded_request):
-        """Decode an request previously encoded"""
-        return request_from_dict(pickle.loads(encoded_request), self.spider)
 
     def next_request(self):
-        block_pop_timeout = self.idle_before_close
         c = self.conn.cursor()
         c.execute('BEGIN IMMEDIATE TRANSACTION')
         c.execute('''
-                SELECT rowid, request, state FROM "%s"
-                WHERE state = ? LIMIT 1''' % self.table, \
+                SELECT rowid, request, state, url, priority FROM "%s"
+                WHERE state = ? ORDER BY priority DESC LIMIT 1''' % self.table, \
                 (connection.SCHEDULED,))
         result = c.fetchone()
         if result:
-            rowid, body, state = result
+            rowid, body, state, url, priority = result
             if body:
                 c.execute('UPDATE "%s" SET state=? WHERE rowid=?'%self.table, \
                         (connection.DOWNLOADING, rowid))
                 self.conn.commit()
 
-                request = self._decode_request(body)
+                # decode request
+                request_dict = pickle.loads(body)
+                request_dict['url'] = url
+                request_dict['priority'] = priority
+                request = request_from_dict(request_dict, self.spider)
+
                 if request and self.stats:
                     self.stats.inc_value('scheduler/dequeued/sqlite', spider=self.spider)
                 return request
 
         self.conn.commit()
+
+    def _encode_request(self, request):
+        """Encode a request object"""
+        request_dict = request_to_dict(request, self.spider)
+
+        # url and priority are saved in columns
+        del request_dict['url']
+        del request_dict['priority']
+
+        return pickle.dumps(request_dict, protocol=-1)
+
+    def _decode_request(self, encoded_request):
+        """Decode an request previously encoded"""
 
     def has_pending_requests(self):
         c = self.conn.execute( \

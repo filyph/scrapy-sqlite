@@ -21,6 +21,8 @@ class SQLiteCacheStorage(object):
     def __init__(self, settings):
         self.cachedir = data_path(settings['HTTPCACHE_DIR'], createdir=True)
         self.sqlite_database = settings['SQLITE_DATABASE']
+        self.table = settings.get('SQLITE_REQUESTS_TABLE', connection.SQLITE_REQUESTS_TABLE)
+        self.database = settings.get('SQLITE_DATABASE', connection.SQLITE_DATABASE)
         self.expiration_secs = settings.getint('HTTPCACHE_EXPIRATION_SECS')
 
         self.use_gzip = settings.getbool('HTTPCACHE_GZIP')
@@ -32,14 +34,14 @@ class SQLiteCacheStorage(object):
             self._dumps = self._pickle_dumps
 
         self.conn = None
-        self.table = 'httpcache'
 
     def open_spider(self, spider):
-        # cachedir path not used
-        #dbpath = os.path.join(self.cachedir, '%s.sqlite3' % spider.name)
-        dbpath = spider.crawler.settings['SQLITE_DATABASE']
-        self.table = '%s_requests' % spider.name
+        self.table = self.table % {'spider': spider.name}
+        self.database = self.database % {'spider': spider.name}
         self.conn = connection.from_crawler(spider.crawler)
+
+        dbpath = self.database+":"+self.table
+        #dbpath = os.path.join(self.cachedir, '%s.sqlite3' % spider.name)
 
         logger.debug("Using SQLite cache storage in %(cachepath)s" % {'cachepath': dbpath}, extra={'spider': spider})
 
