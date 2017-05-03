@@ -1,6 +1,6 @@
 __author__ = 'Filip Hanes'
 
-import connection
+import scrapy_sqlite.connection as connection
 
 from scrapy.spider import Spider
 from scrapy import signals
@@ -8,7 +8,7 @@ from scrapy.exceptions import DontCloseSpider
 
 
 class SQLiteMixin(object):
-    """ A SQLite Mixin used to read URLs from a SQLite queue.
+    """ A SQLite Mixin used to read URLs from a SQLite table.
     """
 
     table = None
@@ -26,7 +26,8 @@ class SQLiteMixin(object):
         if not self.table:
             self.table = '{}_start_urls'.format(self.name)
 
-        self.conn = connection.from_settings(self.crawler.settings)
+        self.conn = connection.from_crawler(self.crawler)
+        self.conn.execute('CREATE TABLE IF NOT EXISTS "%s" (url text)' % self.table)
         self.crawler.signals.connect(self.spider_idle, signal=signals.spider_idle)
         self.crawler.signals.connect(self.item_scraped, signal=signals.item_scraped)
 
@@ -36,10 +37,10 @@ class SQLiteMixin(object):
         """
 
         self.conn.execute('BEGIN IMMEDIATE TRANSACTION'))
-        self.conn.execute('SELECT rowid,url FROM ? LIMIT 1', (self.table)))
+        self.conn.execute('SELECT rowid,url FROM "%s" LIMIT 1' % self.table)
         rowid,url = c.fetchone()
         if url:
-            self.conn.execute('DELETE FROM ? WHERE rowid = ?', (self.table, rowid))
+            self.conn.execute('DELETE FROM "%s" WHERE rowid = ?' % self.table, (rowid,))
             self.conn.commit()
             return self.make_requests_from_url(url)
         self.conn.commit()
@@ -47,7 +48,7 @@ class SQLiteMixin(object):
     def schedule_next_request(self):
         """ Schedules a request, if exists.
 
-        :return:
+        :return: None
         """
         req = self.next_request()
 

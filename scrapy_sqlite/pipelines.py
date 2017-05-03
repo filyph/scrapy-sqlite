@@ -1,5 +1,6 @@
+__author__ = 'Filip Hanes'
 
-import connection
+import scrapy_sqlite.connection as connection
 
 from twisted.internet.threads import deferToThread
 from scrapy.utils.serialize import ScrapyJSONEncoder
@@ -15,21 +16,17 @@ class SQLitePipeline(object):
         # c.execute('CREATE TABLE ? (data TEXT NULL)', (table,)
 
     @classmethod
-    def from_settings(cls, settings):
-        conn = connection.from_settings(settings)
-        return cls(conn)
-
-    @classmethod
     def from_crawler(cls, crawler):
-        return cls.from_settings(crawler.settings)
+        conn = connection.from_crawler(crawler)
+        return cls(conn)
 
     def process_item(self, item, spider):
         return deferToThread(self._process_item, item, spider)
 
     def _process_item(self, item, spider):
-        table = self.items_table(item, spider)
+        table = self.item_table(item, spider)
         data = self.encoder.encode(item)
-        self.conn.execute('INSERT INTO ? VALUES (?)', (table, data))
+        self.conn.execute('INSERT INTO "%s" VALUES (?)'%table, (data,))
         return item
 
     def items_table(self, item, spider):

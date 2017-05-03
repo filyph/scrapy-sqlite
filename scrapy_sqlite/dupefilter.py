@@ -1,11 +1,9 @@
-__author__ = 'roycehaynes'
+__author__ = 'Filip Hanes'
 
-from scrapy.dupefilter import BaseDupeFilter
+from time import time
+import scrapy_sqlite.connection as connection
 
-import time
-import connection
-
-from scrapy.dupefilter import BaseDupeFilter
+from scrapy.dupefilters import BaseDupeFilter
 from scrapy.utils.request import request_fingerprint
 
 
@@ -23,32 +21,20 @@ class RFPDupeFilter(BaseDupeFilter):
         """
         self.conn = conn
         self.table = table
-        self.conn.execute("""CREATE TABLE ? IF NOT EXISTS (
-                fingerprint TEXT UNIQUE,
-                request BLOB,
-                created INTEGER DEFAULT CURRENT_TIMESTAMP,
-                response BLOB,
-                downloaded INTEGER,
-                state INTEGER)""", (self.table,))
-
-    @classmethod
-    def from_settings(cls, settings):
-        conn = connection.from_settings(settings)
-        # create one-time table. needed to support to use this
-        # class as standalone dupefilter with scrapy's default scheduler
-        # if scrapy passes spider on open() method this wouldn't be needed
-        table = "dupefilter_%s" % int(time.time())
-        return cls(conn, table)
 
     @classmethod
     def from_crawler(cls, crawler):
-        return cls.from_settings(crawler.settings)
+        # create one-time table. needed to support to use this
+        # class as standalone dupefilter with scrapy's default scheduler
+        # if scrapy passes spider on open() method this wouldn't be needed
+        conn = connection.from_crawler(crawler)
+        table = "dupefilter_%s" % int(time())
+        return cls(conn, table)
 
     def request_seen(self, request):
         fp = request_fingerprint(request)
 
-        c = self.conn.Cursor()
-        c.execute('INSERT INTO ? (fingerprint) VALUES (?)', (fp,))
+        c = self.conn.execute('INSERT OR IGNORE INTO "%s" (fingerprint) VALUES (?)'%self.table, (fp,))
         self.conn.commit()
 
         return c.rowcount < 1
@@ -59,5 +45,5 @@ class RFPDupeFilter(BaseDupeFilter):
 
     def clear(self):
         """Clears fingerprints data"""
-        self.conn.execute('DELETE FROM ?', (self.table,))
+        self.conn.execute('DELETE FROM %s'%self.table)
 

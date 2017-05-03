@@ -8,7 +8,8 @@ except ImportError:
 
 
 class Base(object):
-    """Per-spider queue/stack base class"""
+    """Per-spider queue/stack base class
+    """
 
     def __init__(self, conn, spider, table):
         """Initialize per-spider SQLite queue.
@@ -21,17 +22,6 @@ class Base(object):
         self.conn = conn
         self.spider = spider
         self.table = table % {'spider': spider.name}
-        self.SCHEDULED = 1
-        self.DOWNLOADING = 2
-        self.DOWNLOADED = 3
-
-        self.conn.execute("""CREATE TABLE ? IF NOT EXISTS (
-                fingerprint TEXT UNIQUE,
-                request BLOB,
-                created INTEGER DEFAULT CURRENT_TIMESTAMP,
-                response BLOB,
-                downloaded INTEGER,
-                state INTEGER)""")
 
     def _encode_request(self, request):
         """Encode a request object"""
@@ -55,7 +45,7 @@ class Base(object):
 
     def clear(self):
         """Clear table"""
-        self.conn.execute('DELETE FROM ?', (self.table,))
+        self.conn.execute('DELETE FROM "%s"' % self.table)
 
 
 class SpiderQueue(Base):
@@ -63,28 +53,39 @@ class SpiderQueue(Base):
 
     def __len__(self):
         """Return the length of the queue"""
-        self.conn.execute('SELECT COUNT(*) FROM ?'% (self.table)))
+        c = self.conn.execute('SELECT COUNT(*) FROM "%s"' % self.table)
         count, = c.fetchone()
 
-        return count
+        return int(count)
 
     def push(self, request):
         """Push a request"""
-        self.conn.execute('REPLACE INTO ? (fingerprint, request, state) VALUES (?,?,?)',\
-                (self.table, request_fingerprint(request), self._encode_request(request), self.SCHEDULED))
+        request_dump = self._encode_request(request)
+        fingerprint = request_fingerprint(request)
+        # INSERT OR IGNORE acts as dupefilter, because column fingerprint is UNIQUE
+        c = self.conn.execute('''
+            INSERT OR IGNORE INTO "%s"
+                (fingerprint, request, state) VALUES (?, ?, ?)''' % self.table,\
+                (fingerprint, request_dump, connection.SCHEDULED))
+
+        if c.rowcount < 1:
+            c = self.conn.execute('UPDATE "%s" SET state = ?' % self.table,\
+                    (connection.SCHEDULED,))
         self.conn.commit()
 
     def pop(self):
         """Pop a request"""
 
         c = self.conn.cursor()
-        c.execute('BEGIN IMMEDIATE TRANSACTION'))
-        c.execute('SELECT rowid,request,state FROM ? LIMIT 1', (self.table)))
-        rowid,body,state = c.fetchone()
-        if body:
-            c.execute('UPDATE ? SET state = ? WHERE rowid = ?', (self.table, self.DOWNLOADING, rowid))
-            self.conn.commit()
-            return self._decode_request(body)
+        c.execute('BEGIN IMMEDIATE TRANSACTION')
+        c.execute('SELECT rowid,request,state FROM "%s" LIMIT 1'%self.table)
+        result = c.fetchone()
+        if result:
+            rowid, body, state = c.fetchone()
+            if body:
+                c.execute('UPDATE "%s" SET state = ? WHERE rowid = ?'%self.table, (connection.DOWNLOADING, rowid))
+                self.conn.commit()
+                return self._decode_request(body)
         self.conn.commit()
 
 __all__ = ['SpiderQueue']

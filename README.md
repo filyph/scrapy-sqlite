@@ -1,4 +1,3 @@
-current commit is not tested even once, 
 
 ## A SQLite Scheduler for Scrapy Framework.
 
@@ -29,28 +28,24 @@ python setup.py install
 
 ```
 # Enables scheduling storing requests queue in sqlite.
-
 SCHEDULER = "scrapy_sqlite.scheduler.Scheduler"
 
 # Don't cleanup sqlite queues, allows to pause/resume crawls.
 SCHEDULER_PERSIST = True
-
-# Schedule requests using a priority queue. (default)
-SCHEDULER_QUEUE_CLASS = 'scrapy_sqlite.queue.SpiderQueue'
-
-# SQLite Queue to use to store requests
-SQLITE_QUEUE_TABLE = 'scrapy_queue'
 
 # Provide path to SQLite db file, this example creates imdb.sqlite3 filename for bot named imdb
 SQLITE_DATABASE = '%(spider)s.sqlite3'
 
 # Store scraped item in sqlite for post-processing.
 ITEM_PIPELINES = {
-    'scrapy_sqlite.pipelines.SQLitePipeline': 1
+    'scrapy_sqlite.pipelines.SQLitePipeline': 100
 }
 
 # Cache Storage class 
 HTTPCACHE_STORAGE = 'scrapy_sqlite.httpcache.SQLiteCacheStorage'
+
+# Enables gzip compression of responses. If response are already recieved compressed (recommended and very used feature by webservers), it compresses response second time
+HTTPCACHE_GZIP = True
 
 ```
 
