@@ -4,7 +4,6 @@ __author__ = 'Filip Hanes'
 
 import os
 import gzip
-import logging
 from six.moves import cPickle as pickle
 from time import time
 from scrapy.http import Headers, Response
@@ -12,8 +11,10 @@ from scrapy.responsetypes import responsetypes
 from scrapy.utils.request import request_fingerprint
 from scrapy.utils.project import data_path
 import sqlite3
+from time import sleep
 import scrapy_sqlite.connection as connection
 
+import logging
 logger = logging.getLogger(__name__)
 
 class SQLiteCacheStorage(object):
@@ -69,7 +70,9 @@ class SQLiteCacheStorage(object):
         }
         response_dump = self._dumps(data)
         fingerprint = request_fingerprint(request)
-        c = self.conn.execute( \
+        c = self.conn.cursor()
+        self.begin_immediate_transaction(c)
+        c.execute( \
             'UPDATE "%s" SET response=?, downloaded=?, state=? WHERE fingerprint=?'%self.table, \
             (response_dump, int(time()), connection.DOWNLOADED, fingerprint))
         if c.rowcount < 1:
@@ -80,6 +83,18 @@ class SQLiteCacheStorage(object):
 
         #logger.debug("cursor.rowcount = %s" % (c.rowcount,), extra={'spider': spider})
         self.conn.commit()
+
+    def begin_immediate_transaction(self, c):
+        canwait = 30
+        while canwait:
+            try:
+                c.execute('BEGIN IMMEDIATE TRANSACTION')
+                return
+            except sqlite3.OperationalError:
+                logger.info('Database locked, waiting 1s...')
+                canwait -= 1
+                sleep(1);
+        logger.debug('Waiting for sqlite3 db lock timeout 30 occured')
 
     def _read_data(self, spider, request):
         fp = request_fingerprint(request)

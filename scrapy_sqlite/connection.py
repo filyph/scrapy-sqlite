@@ -8,7 +8,10 @@ except ImportError:
 
 
 SQLITE_DATABASE = '%(spider)s.sqlite3'
-SQLITE_REQUESTS_TABLE= '%(spider)s_requests'
+SQLITE_REQUESTS_TABLE= 'http'
+# another scenario grouping all spider to one database file and tables with spider prefixes:
+#SQLITE_DATABASE = 'db.sqlite3'
+#SQLITE_REQUESTS_TABLE= '%(spider)s_requests'
 
 # state codes
 SCHEDULED = 1
@@ -34,13 +37,16 @@ def from_crawler(crawler):
 
     if sqlite_database not in connections:
         conn = connections[sqlite_database] = sqlite3.connect(sqlite_database)
+        conn.row_factory = sqlite3.Row
 
         # ensure that main table used by scheduler, httpcache and dupefilter exists
+        # TODO: do not execute from pipeline
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS "%s"(
                 state INTEGER,
                 url TEXT,
                 priority INTEGER,
+                scheduled INTEGER,
                 downloaded INTEGER,
                 fingerprint TEXT UNIQUE,
                 request BLOB,

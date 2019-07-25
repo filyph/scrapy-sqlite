@@ -6,19 +6,23 @@ from scrapy.utils.misc import load_object
 from scrapy_sqlite.dupefilter import RFPDupeFilter
 from scrapy.utils.reqser import request_to_dict, request_from_dict
 from scrapy.utils.request import request_fingerprint
+import sqlite3
+from time import sleep
 
 try:
     import cPickle as pickle
 except ImportError:
     import pickle
 
+import logging
+logger = logging.getLogger(__name__)
+
 # default values
 SCHEDULER_PERSIST = False
-QUEUE_TABLE = '%(spider)s_requests'
+QUEUE_TABLE = 'http'
 QUEUE_CLASS = 'scrapy_sqlite.queue.SpiderQueue'
 DUPEFILTER_TABLE = '%(spider)s_dupefilter'
 IDLE_BEFORE_CLOSE = 0
-
 
 class Scheduler(object):
     """ A SQLite Scheduler for Scrapy.
@@ -57,8 +61,12 @@ class Scheduler(object):
 
     def close(self, reason):
         if not self.persist:
-            self.conn.execute('DELETE FROM "%s" WHERE state=?' % self.table, \
-                    (connection.SCHEDULED))
+            # removes scheduled and downloading requests
+            self.conn.execute('DELETE FROM "%s" WHERE state=? OR state=?' % self.table, \
+                    (connection.SCHEDULED, connection.DOWNLOADING))
+            # all downloaded requests sets as scheduled for next run
+            self.conn.execute('UPDATE "%s" SET state=?' % self.table, \
+                    (connection.SCHEDULED, ))
 
     def enqueue_request(self, request):
         request_dump = self._encode_request(request)
@@ -66,7 +74,7 @@ class Scheduler(object):
 
         # INSERT OR IGNORE acts as dupefilter, because column fingerprint is UNIQUE
         c = self.conn.cursor()
-        c.execute('BEGIN IMMEDIATE TRANSACTION')
+        self.begin_immediate_transaction(c)
         c.execute('''
             INSERT OR IGNORE INTO "%s"
                 (url, fingerprint, priority, request, state) VALUES (?,?,?,?,?)''' % self.table,\
@@ -75,17 +83,29 @@ class Scheduler(object):
         # if request is not inserted (new) and we cannot filter it,
         # update state to be scheduled again
         if c.rowcount < 1 and request.dont_filter:
-            c = self.conn.execute('UPDATE "%s" SET state = ?' % self.table,\
-                    (connection.SCHEDULED,))
+            c = self.conn.execute('UPDATE "%s" SET state = ? WHERE fingerprint=?' % self.table,\
+                    (connection.SCHEDULED, fingerprint))
             if self.stats:
                 self.stats.inc_value('scheduler/enqueued/sqlite', spider=self.spider)
 
         self.conn.commit()
 
 
+    def begin_immediate_transaction(self, cursor):
+        canwait = 30
+        while canwait:
+            try:
+                cursor.execute('BEGIN IMMEDIATE TRANSACTION')
+                return
+            except sqlite3.OperationalError:
+                logger.info('Database locked, waiting 1s...')
+                canwait -= 1
+                sleep(1);
+        logger.debug('Waiting for sqlite3 db lock timeout 30 occured')
+
     def next_request(self):
         c = self.conn.cursor()
-        c.execute('BEGIN IMMEDIATE TRANSACTION')
+        self.begin_immediate_transaction(c)
         c.execute('''
                 SELECT rowid, request, state, url, priority FROM "%s"
                 WHERE state = ? ORDER BY priority DESC LIMIT 1''' % self.table, \
@@ -114,7 +134,7 @@ class Scheduler(object):
         """Encode a request object"""
         request_dict = request_to_dict(request, self.spider)
 
-        # url and priority are saved in columns
+        # url and priority are saved in table columns
         del request_dict['url']
         del request_dict['priority']
 
@@ -125,16 +145,15 @@ class Scheduler(object):
 
     def has_pending_requests(self):
         c = self.conn.execute( \
-            'SELECT rowid FROM "%s" WHERE state=? LIMIT 1'%self.table, \
+            'SELECT * FROM "%s" WHERE state=? LIMIT 1'%self.table, \
             (connection.SCHEDULED,))
-            # SELECT rowid FROM roksa_requests WHERE state=1 LIMIT 1;
+            # SELECT rowid FROM http WHERE state=1 LIMIT 1;
         return c.fetchone() is not None
 
     def __len__(self):
         """Return the number of scheduled requests"""
         c = self.conn.execute( \
             'SELECT COUNT(*) FROM "%s" WHERE state=?'%self.table, \
-            # SELECT COUNT(*) FROM roksa_requests WHERE state=1;
             (connection.SCHEDULED,))
         result = c.fetchone()
         if result:
